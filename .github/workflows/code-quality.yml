@@ -1,0 +1,325 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 8 * * 1'  # Every Monday at 8 AM UTC
+
+jobs:
+  # Code Quality Analysis
+  code-quality:
+    name: Code Quality Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for better analysis
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Set up Node.js 18
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install Python code quality tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install black isort flake8 mypy bandit safety vulture radon
+        cd src/backend
+        pip install -r requirements.txt
+
+    - name: Install Node.js code quality tools
+      run: |
+        cd src/frontend
+        npm ci
+        npm install -g jshint eslint prettier
+
+    - name: Run Python code formatting check
+      run: |
+        cd src/backend
+        echo "::group::Black formatting check"
+        black --check --diff .
+        echo "::endgroup::"
+        
+        echo "::group::Import sorting check"
+        isort --check-only --diff .
+        echo "::endgroup::"
+
+    - name: Run Python linting
+      run: |
+        cd src/backend
+        echo "::group::Flake8 linting"
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+        echo "::endgroup::"
+
+    - name: Run Python type checking
+      run: |
+        cd src/backend
+        echo "::group::MyPy type checking"
+        mypy . --ignore-missing-imports
+        echo "::endgroup::"
+
+    - name: Run Python security analysis
+      run: |
+        cd src/backend
+        echo "::group::Bandit security analysis"
+        bandit -r app/ -f json -o bandit-report.json || true
+        bandit -r app/ || true
+        echo "::endgroup::"
+
+    - name: Run Python dependency vulnerability check
+      run: |
+        cd src/backend
+        echo "::group::Safety dependency check"
+        safety check --json --output safety-report.json || true
+        safety check || true
+        echo "::endgroup::"
+
+    - name: Run Python dead code detection
+      run: |
+        cd src/backend
+        echo "::group::Vulture dead code detection"
+        vulture . --min-confidence 60 || true
+        echo "::endgroup::"
+
+    - name: Run Python complexity analysis
+      run: |
+        cd src/backend
+        echo "::group::Radon complexity analysis"
+        radon cc . -s
+        radon mi . -s
+        echo "::endgroup::"
+
+    - name: Run Frontend code formatting check
+      run: |
+        cd src/frontend
+        echo "::group::Prettier formatting check"
+        npx prettier --check .
+        echo "::endgroup::"
+
+    - name: Run Frontend linting
+      run: |
+        cd src/frontend
+        echo "::group::ESLint analysis"
+        npm run lint
+        echo "::endgroup::"
+
+    - name: Run Frontend type checking
+      run: |
+        cd src/frontend
+        echo "::group::TypeScript type checking"
+        npm run type-check
+        echo "::endgroup::"
+
+    - name: Upload code quality reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: code-quality-reports
+        path: |
+          src/backend/bandit-report.json
+          src/backend/safety-report.json
+
+  # SonarQube Analysis
+  sonarqube:
+    name: SonarQube Analysis
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install Python dependencies
+      run: |
+        cd src/backend
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov
+
+    - name: Run backend tests with coverage
+      run: |
+        cd src/backend
+        python -m pytest tests/ --cov=app --cov-report=xml --cov-report=html
+      env:
+        DATABASE_URL: sqlite:///./test.db
+        SECRET_KEY: test-secret-key-for-ci
+
+    - name: Set up Node.js 18
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install frontend dependencies
+      run: |
+        cd src/frontend
+        npm ci
+
+    - name: Run frontend tests with coverage
+      run: |
+        cd src/frontend
+        npm run test:coverage
+
+    - name: SonarQube Scan
+      uses: sonarqube-quality-gate-action@master
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # License Compliance Check
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install license checker
+      run: |
+        pip install pip-licenses licensecheck
+
+    - name: Check Python licenses
+      run: |
+        cd src/backend
+        pip install -r requirements.txt
+        echo "::group::Python package licenses"
+        pip-licenses --format=json --output-file=python-licenses.json
+        pip-licenses --fail-on="GPL v3"
+        echo "::endgroup::"
+
+    - name: Set up Node.js 18
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install Node.js license checker
+      run: |
+        npm install -g license-checker
+
+    - name: Check Node.js licenses
+      run: |
+        cd src/frontend
+        npm ci
+        echo "::group::Node.js package licenses"
+        license-checker --json --out node-licenses.json
+        license-checker --failOn "GPL-3.0"
+        echo "::endgroup::"
+
+    - name: Upload license reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: license-reports
+        path: |
+          src/backend/python-licenses.json
+          src/frontend/node-licenses.json
+
+  # Documentation Check
+  docs-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check for README updates
+      run: |
+        if ! grep -q "$(date +%Y)" README.md; then
+          echo "⚠️ README.md might need updating (current year not found)"
+        fi
+
+    - name: Check documentation completeness
+      run: |
+        echo "::group::Documentation completeness check"
+        
+        # Check if key documentation files exist
+        required_docs=(
+          "README.md"
+          "docs/api/api-specification.md"
+          "docs/database-design.md"
+          "architecture/decisions/ADR-001-technology-choices.md"
+        )
+        
+        missing_docs=()
+        for doc in "${required_docs[@]}"; do
+          if [ ! -f "$doc" ]; then
+            missing_docs+=("$doc")
+          fi
+        done
+        
+        if [ ${#missing_docs[@]} -gt 0 ]; then
+          echo "❌ Missing documentation files:"
+          printf '%s\n' "${missing_docs[@]}"
+          exit 1
+        else
+          echo "✅ All required documentation files present"
+        fi
+        
+        echo "::endgroup::"
+
+    - name: Check links in documentation
+      uses: gaurav-nelson/github-action-markdown-link-check@v1
+      with:
+        use-quiet-mode: 'yes'
+        use-verbose-mode: 'yes'
+        config-file: '.github/mlc_config.json'
+
+  # Performance Baseline
+  performance-baseline:
+    name: Performance Baseline
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Start services
+      run: |
+        docker-compose up -d --build
+        sleep 60
+
+    - name: Install performance testing tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y apache2-utils wrk
+        pip install locust
+
+    - name: Run basic performance tests
+      run: |
+        echo "::group::Backend API performance"
+        ab -n 1000 -c 10 http://localhost:8000/health
+        echo "::endgroup::"
+        
+        echo "::group::Frontend performance"
+        curl -w "@curl-format.txt" -o /dev/null -s http://localhost:3000/
+        echo "::endgroup::"
+
+    - name: Stop services
+      if: always()
+      run: docker-compose down

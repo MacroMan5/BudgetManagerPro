@@ -1,0 +1,44 @@
+# Integration Testing Requirements
+# These dependencies are used for running integration tests
+
+# Core testing framework
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0
+
+# HTTP client for API testing
+httpx==0.25.2
+requests==2.31.0
+
+# Test data and fixtures
+faker==20.1.0
+factory-boy==3.3.0
+
+# Database testing
+pytest-postgresql==5.0.0
+alembic==1.12.1
+
+# Environment management
+python-dotenv==1.0.0
+
+# Assertion helpers
+assertpy==1.1
+
+# Load testing (optional)
+locust==2.17.0
+
+# Performance testing
+pytest-benchmark==4.0.0
+
+# Coverage reporting
+pytest-cov==4.1.0
+
+# JSON schema validation
+jsonschema==4.20.0
+
+# Date/time utilities for testing
+freezegun==1.2.2
+
+# WebDriver for E2E testing (optional)
+selenium==4.15.2
+playwright==1.40.0
